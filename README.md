@@ -53,9 +53,6 @@ For detailed API documentation and advanced usage, please refer to the [full doc
 ## Security
 This API uses JWT for authentication and AES-256 for encryption. Ensure to keep all keys secure and use HTTPS in production.
 
-## Contributing
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
-
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
