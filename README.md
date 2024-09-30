@@ -60,4 +60,4 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
-For support, please open an issue in the GitHub issue tracker or contact the development team at support@example.com.
+For support, please open an issue in the GitHub issue tracker or contact the development team at https://discord.gg/SZ5AVdYa6e
