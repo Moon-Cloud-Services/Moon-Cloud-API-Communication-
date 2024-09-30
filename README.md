@@ -18,7 +18,7 @@ This project provides a secure API for communication between a Discord bot and v
 ### Installation
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/discord-vm-api.git
+   git clone https://github.com/Moon-Cloud-Services/Moon-Cloud-API-Communication-.git
    cd discord-vm-api
    ```
 
