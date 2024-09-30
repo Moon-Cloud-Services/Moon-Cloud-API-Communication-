@@ -48,7 +48,7 @@ This project provides a secure API for communication between a Discord bot and v
 - Send API requests to `http://localhost:8000/execute_command` with proper JWT authentication
 
 ## Documentation
-For detailed API documentation and advanced usage, please refer to the [full documentation](docs/DOCUMENTATION.md).
+For detailed API documentation and advanced usage, please refer to the [full documentation](https://github.com/Moon-Cloud-Services/Moon-Cloud-API-Communication-/blob/main/DOCUMENTATION.md). 
 
 ## Security
 This API uses JWT for authentication and AES-256 for encryption. Ensure to keep all keys secure and use HTTPS in production.
