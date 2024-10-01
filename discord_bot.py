@@ -204,5 +204,5 @@ Use !help <command> for more information on a specific command.
         }
         await ctx.send(command_help.get(command, f"Unknown command: {command}"))
 
-# Execução do bot
+# Bot execution
 bot.run(TOKEN)
