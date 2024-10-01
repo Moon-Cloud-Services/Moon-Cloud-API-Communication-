@@ -6,3 +6,4 @@ discord.py==1.7.3
 aiohttp==3.7.4
 websockets==9.1
 python-multipart==0.0.5
+aiosqlite==0.17.0
