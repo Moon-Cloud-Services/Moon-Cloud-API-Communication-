@@ -123,7 +123,7 @@ asyncio.get_event_loop().run_until_complete(connect_websocket())
 
 **Documentation**
 
-For detailed API documentation and advanced usage, please refer to the full documentation.
+For detailed API documentation and advanced usage, please refer to the full [Documentation](https://github.com/Moon-Cloud-Services/Moon-Cloud-API-Communication-/blob/main/DOCUMENTATION.md)
 
 **Security**
 
