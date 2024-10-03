@@ -1,13 +1,12 @@
 import os
 from fastapi import FastAPI, WebSocket, Depends, HTTPException, status, Security
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, APIKeyHeader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 import jwt
 import asyncio
 import json
-from Crypto.Cipher import AES
-import base64
+from cryptography.fernet import Fernet
 import logging
 from datetime import datetime, timedelta
 import bcrypt
@@ -15,38 +14,44 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 import databases
 import sqlalchemy
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, DateTime
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./moon_cloud.db")
 database = databases.Database(DATABASE_URL)
 metadata = sqlalchemy.MetaData()
 
-# Definition of the tables
-users = sqlalchemy.Table(
-    "users",
-    metadata,
-    sqlalchemy.Column("id", sqlalchemy.Integer, primary_key=True),
-    sqlalchemy.Column("username", sqlalchemy.String, unique=True),
-    sqlalchemy.Column("hashed_password", sqlalchemy.String),
-)
+# SQLAlchemy models
+Base = declarative_base()
 
-servers = sqlalchemy.Table(
-    "servers",
-    metadata,
-    sqlalchemy.Column("id", sqlalchemy.Integer, primary_key=True),
-    sqlalchemy.Column("name", sqlalchemy.String, unique=True),
-    sqlalchemy.Column("status", sqlalchemy.String),
-)
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Server(Base):
+    __tablename__ = "servers"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    status = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 # Database engine creation
-engine = sqlalchemy.create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
-metadata.create_all(engine)
+engine = sqlalchemy.create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -63,7 +68,8 @@ app.add_middleware(
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-AES_KEY = base64.b64decode(os.getenv("AES_KEY"))
+FERNET_KEY = Fernet.generate_key() if not os.getenv("FERNET_KEY") else os.getenv("FERNET_KEY").encode()
+fernet = Fernet(FERNET_KEY)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 api_key_header = APIKeyHeader(name="X-API-Key")
@@ -75,11 +81,15 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
 
-class User(BaseModel):
-    username: str
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8)
 
-class UserInDB(User):
-    hashed_password: str
+class UserInDB(BaseModel):
+    id: int
+    username: str
+    created_at: datetime
+    updated_at: datetime
 
 class VMCommand(BaseModel):
     action: str
@@ -89,18 +99,15 @@ class ServerInfo(BaseModel):
     id: int
     name: str
     status: str
+    created_at: datetime
+    updated_at: datetime
 
 # Encryption functions
 def encrypt_message(message: str) -> str:
-    cipher = AES.new(AES_KEY, AES.MODE_GCM)
-    ciphertext, tag = cipher.encrypt_and_digest(message.encode())
-    return base64.b64encode(cipher.nonce + tag + ciphertext).decode()
+    return fernet.encrypt(message.encode()).decode()
 
 def decrypt_message(encrypted_message: str) -> str:
-    encrypted = base64.b64decode(encrypted_message)
-    nonce, tag, ciphertext = encrypted[:16], encrypted[16:32], encrypted[32:]
-    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=nonce)
-    return cipher.decrypt_and_verify(ciphertext, tag).decode()
+    return fernet.decrypt(encrypted_message.encode()).decode()
 
 # Authentication functions
 def verify_password(plain_password, hashed_password):
@@ -110,8 +117,9 @@ def get_password_hash(password):
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 async def get_user(username: str):
-    query = users.select().where(users.c.username == username)
-    return await database.fetch_one(query)
+    async with database.transaction():
+        query = sqlalchemy.select([User]).where(User.username == username)
+        return await database.fetch_one(query)
 
 async def authenticate_user(username: str, password: str):
     user = await get_user(username)
@@ -150,6 +158,24 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return user
 
+# Middleware for request logging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = datetime.utcnow()
+    response = await call_next(request)
+    process_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+    logger.info(f"Request: {request.method} {request.url.path} - Status: {response.status_code} - Process Time: {process_time:.2f}ms")
+    return response
+
+# Error handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An unexpected error occurred. Please try again later."},
+    )
+
 # API routes
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -165,6 +191,17 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         data={"sub": user["username"]}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/users", response_model=UserInDB)
+async def create_user(user: UserCreate):
+    async with database.transaction():
+        existing_user = await get_user(user.username)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already registered")
+        hashed_password = get_password_hash(user.password)
+        query = User.__table__.insert().values(username=user.username, hashed_password=hashed_password)
+        user_id = await database.execute(query)
+        return {"id": user_id, "username": user.username, "created_at": datetime.utcnow(), "updated_at": datetime.utcnow()}
 
 @app.post("/execute_command")
 async def execute_command(command: VMCommand, current_user: User = Depends(get_current_user)):
@@ -189,8 +226,9 @@ async def execute_command(command: VMCommand, current_user: User = Depends(get_c
 
 @app.get("/servers", response_model=List[ServerInfo])
 async def list_servers(current_user: User = Depends(get_current_user)):
-    query = servers.select()
-    return await database.fetch_all(query)
+    async with database.transaction():
+        query = sqlalchemy.select([Server])
+        return await database.fetch_all(query)
 
 @app.post("/servers/{server_id}/backup")
 async def backup_server(server_id: int, current_user: User = Depends(get_current_user)):
@@ -253,9 +291,9 @@ def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
     openapi_schema = get_openapi(
-        title="Server Management API",
+        title="Moon Cloud Services API",
         version="1.0.0",
-        description="API for managing virtual servers",
+        description="API for managing virtual servers in the Moon Cloud Services platform",
         routes=app.routes,
     )
     app.openapi_schema = openapi_schema
