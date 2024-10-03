@@ -212,4 +212,4 @@ To scale the application:
 - Keep all dependencies up to date.
 - Monitor system logs and performance metrics.
 
-For additional support or questions, please open an issue in the GitHub repository or contact the Moon Cloud Services development team.
+For additional support or questions, please open an issue in the GitHub repository or contact the Moon Cloud Services development team [Discord](https://discord.gg/SZ5AVdYa6e)
