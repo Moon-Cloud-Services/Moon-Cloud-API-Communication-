@@ -5,17 +5,23 @@ import aiohttp
 import asyncio
 import websockets
 import json
-from Crypto.Cipher import AES
-import base64
+from cryptography.fernet import Fernet
+import logging
+from datetime import datetime
 
 # Bot configuration
-TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 API_URL = os.getenv('API_URL')
 WS_URL = os.getenv('WS_URL')
 WS_API_KEY = os.getenv('WS_API_KEY')
 
-# AES encryption key
-AES_KEY = base64.b64decode(os.getenv('AES_KEY'))
+# Fernet encryption key
+FERNET_KEY = os.getenv('FERNET_KEY').encode()
+fernet = Fernet(FERNET_KEY)
+
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -23,19 +29,14 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Encryption functions
 def encrypt_message(message: str) -> str:
-    cipher = AES.new(AES_KEY, AES.MODE_GCM)
-    ciphertext, tag = cipher.encrypt_and_digest(message.encode())
-    return base64.b64encode(cipher.nonce + tag + ciphertext).decode()
+    return fernet.encrypt(message.encode()).decode()
 
 def decrypt_message(encrypted_message: str) -> str:
-    encrypted = base64.b64decode(encrypted_message)
-    nonce, tag, ciphertext = encrypted[:16], encrypted[16:32], encrypted[32:]
-    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=nonce)
-    return cipher.decrypt_and_verify(ciphertext, tag).decode()
+    return fernet.decrypt(encrypted_message.encode()).decode()
 
 @bot.event
 async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
+    logger.info(f'{bot.user} has connected to Discord!')
     bot.loop.create_task(websocket_handler())
 
 async def websocket_handler():
@@ -45,13 +46,18 @@ async def websocket_handler():
                 WS_URL,
                 extra_headers={'X-API-Key': WS_API_KEY}
             ) as websocket:
+                logger.info("Connected to WebSocket")
                 while True:
                     message = await websocket.recv()
                     decrypted_message = decrypt_message(message)
-                    print(f"Received from WebSocket: {decrypted_message}")
+                    logger.info(f"Received from WebSocket: {decrypted_message}")
                     # Here you can add logic to process the received message
+                    # For example, send it to a specific Discord channel
+                    channel = bot.get_channel(int(os.getenv('NOTIFICATION_CHANNEL_ID')))
+                    if channel:
+                        await channel.send(f"Server update: {decrypted_message}")
         except Exception as e:
-            print(f"WebSocket error: {str(e)}")
+            logger.error(f"WebSocket error: {str(e)}")
             await asyncio.sleep(5)  # Wait before trying to reconnect
 
 async def execute_command(ctx, action, server_id=None):
@@ -72,26 +78,32 @@ async def execute_command(ctx, action, server_id=None):
                 else:
                     await ctx.send(f"Failed to execute command. Status: {response.status}")
         except aiohttp.ClientError as e:
-            await ctx.send(f"Error communicating with the API: {str(e)}")
+            logger.error(f"Error communicating with the API: {str(e)}")
+            await ctx.send(f"Error communicating with the API. Please try again later.")
 
-@bot.command()
+@bot.command(name="startvm")
 async def startvm(ctx, server_id: str = None):
+    """Start a virtual machine"""
     await execute_command(ctx, "start", server_id)
 
-@bot.command()
+@bot.command(name="stopvm")
 async def stopvm(ctx, server_id: str = None):
+    """Stop a virtual machine"""
     await execute_command(ctx, "stop", server_id)
 
-@bot.command()
+@bot.command(name="rebootvm")
 async def rebootvm(ctx, server_id: str = None):
+    """Reboot a virtual machine"""
     await execute_command(ctx, "reboot", server_id)
 
-@bot.command()
+@bot.command(name="statusvm")
 async def statusvm(ctx, server_id: str = None):
+    """Get the status of a virtual machine"""
     await execute_command(ctx, "status", server_id)
 
-@bot.command()
+@bot.command(name="listservers")
 async def listservers(ctx):
+    """List all available servers"""
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(
@@ -100,15 +112,17 @@ async def listservers(ctx):
             ) as response:
                 if response.status == 200:
                     servers = await response.json()
-server_list = "\n".join([f"ID: {s['id']}, Name: {s['name']}, Status: {s['status']}" for s in servers])
+                    server_list = "\n".join([f"ID: {s['id']}, Name: {s['name']}, Status: {s['status']}" for s in servers])
                     await ctx.send(f"Available servers:\n{server_list}")
                 else:
                     await ctx.send(f"Failed to retrieve server list. Status: {response.status}")
         except aiohttp.ClientError as e:
-            await ctx.send(f"Error communicating with the API: {str(e)}")
+            logger.error(f"Error communicating with the API: {str(e)}")
+            await ctx.send(f"Error communicating with the API. Please try again later.")
 
-@bot.command()
+@bot.command(name="backupserver")
 async def backupserver(ctx, server_id: str):
+    """Initiate a backup for a specific server"""
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(
@@ -121,10 +135,12 @@ async def backupserver(ctx, server_id: str):
                 else:
                     await ctx.send(f"Failed to initiate backup. Status: {response.status}")
         except aiohttp.ClientError as e:
-            await ctx.send(f"Error communicating with the API: {str(e)}")
+            logger.error(f"Error communicating with the API: {str(e)}")
+            await ctx.send(f"Error communicating with the API. Please try again later.")
 
-@bot.command()
+@bot.command(name="serverresources")
 async def serverresources(ctx, server_id: str):
+    """Get resource usage for a specific server"""
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(
@@ -137,10 +153,12 @@ async def serverresources(ctx, server_id: str):
                 else:
                     await ctx.send(f"Failed to retrieve server resources. Status: {response.status}")
         except aiohttp.ClientError as e:
-            await ctx.send(f"Error communicating with the API: {str(e)}")
+            logger.error(f"Error communicating with the API: {str(e)}")
+            await ctx.send(f"Error communicating with the API. Please try again later.")
 
-@bot.command()
+@bot.command(name="serverlogs")
 async def serverlogs(ctx, server_id: str):
+    """Get logs for a specific server"""
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(
@@ -153,10 +171,12 @@ async def serverlogs(ctx, server_id: str):
                 else:
                     await ctx.send(f"Failed to retrieve server logs. Status: {response.status}")
         except aiohttp.ClientError as e:
-            await ctx.send(f"Error communicating with the API: {str(e)}")
+            logger.error(f"Error communicating with the API: {str(e)}")
+            await ctx.send(f"Error communicating with the API. Please try again later.")
 
-@bot.command()
+@bot.command(name="scheduletask")
 async def scheduletask(ctx, server_id: str, *, task: str):
+    """Schedule a task for a specific server"""
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(
@@ -170,10 +190,12 @@ async def scheduletask(ctx, server_id: str, *, task: str):
                 else:
                     await ctx.send(f"Failed to schedule task. Status: {response.status}")
         except aiohttp.ClientError as e:
-            await ctx.send(f"Error communicating with the API: {str(e)}")
+            logger.error(f"Error communicating with the API: {str(e)}")
+            await ctx.send(f"Error communicating with the API. Please try again later.")
 
-@bot.command()
-async def help(ctx, command: str = None):
+@bot.command(name="help")
+async def help_command(ctx, command: str = None):
+    """Show help information for commands"""
     if command is None:
         help_text = """
 Available commands:
@@ -191,18 +213,23 @@ Use !help <command> for more information on a specific command.
 """
         await ctx.send(help_text)
     else:
-        command_help = {
-            "startvm": "Start a virtual machine. Usage: !startvm [server_id]",
-            "stopvm": "Stop a virtual machine. Usage: !stopvm [server_id]",
-            "rebootvm": "Reboot a virtual machine. Usage: !rebootvm [server_id]",
-            "statusvm": "Get the status of a virtual machine. Usage: !statusvm [server_id]",
-            "listservers": "List all available servers. Usage: !listservers",
-            "backupserver": "Initiate a backup for a specific server. Usage: !backupserver <server_id>",
-            "serverresources": "Get resource usage for a specific server. Usage: !serverresources <server_id>",
-            "serverlogs": "Get logs for a specific server. Usage: !serverlogs <server_id>",
-            "scheduletask": "Schedule a task for a specific server. Usage: !scheduletask <server_id> <task>"
-        }
-        await ctx.send(command_help.get(command, f"Unknown command: {command}"))
+        command_obj = bot.get_command(command)
+        if command_obj:
+            await ctx.send(f"{command}: {command_obj.help}")
+        else:
+            await ctx.send(f"Unknown command: {command}")
+
+# Error handling
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("Unknown command. Use !help to see available commands.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"Missing required argument: {error.param}")
+    else:
+        logger.error(f"Unhandled error: {str(error)}")
+        await ctx.send("An error occurred while processing your command. Please try again later.")
 
 # Bot execution
-bot.run(TOKEN)
+if __name__ == "__main__":
+    bot.run(TOKEN)
