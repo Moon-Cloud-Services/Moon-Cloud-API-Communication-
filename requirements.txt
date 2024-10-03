@@ -1,9 +1,11 @@
-fastapi==0.68.0
-uvicorn==0.15.0
-pyjwt==2.3.0
-pycryptodome==3.10.1
-discord.py==1.7.3
-aiohttp==3.7.4
-websockets==9.1
-python-multipart==0.0.5
-aiosqlite==0.17.0
+fastapi==0.103.0
+uvicorn==0.23.1
+pyjwt==2.8.0
+cryptography==41.0.3  # Replaces pycryptodome for Fernet encryption
+discord.py==2.3.1  # Updated version of discord.py
+aiohttp==3.8.5
+websockets==11.0.3
+python-multipart==0.0.6
+sqlalchemy==2.0.20  # Database ORM for FastAPI
+alembic==1.11.2  # For database migrations
+psycopg2-binary==2.9.7  # PostgreSQL database driver
